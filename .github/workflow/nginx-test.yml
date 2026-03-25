@@ -1,0 +1,56 @@
+name: Nginx CI Test
+on:
+  push:
+    paths:
+      - 'index.html'
+
+jobs:
+  deploy-and-test:
+    runs-on: self-hosted 
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Start Nginx container
+        run: |
+          docker rm -f test-nginx || true
+          
+          docker run -d --name test-nginx -p 9889:80 -v ${{ github.workspace }}:/usr/share/nginx/html nginx:alpine
+          
+          sleep 2
+
+      - name: Check HTTP 200
+        run: |
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:9889/index.html)
+          if [ "$HTTP_CODE" -ne 200 ]; then
+            echo "Ошибка: Ожидался код 200, получен $HTTP_CODE"
+            exit 1
+          fi
+          echo "HTTP проверка пройдена!"
+
+      - name: Check MD5 sum
+        run: |
+          # Считаем сумму локального файла
+          MD5_LOCAL=$(md5sum index.html | awk '{print $1}')
+          # Считаем сумму файла, который отдает Nginx
+          MD5_REMOTE=$(curl -s http://localhost:9889/index.html | md5sum | awk '{print $1}')
+
+          if [ "$MD5_LOCAL" != "$MD5_REMOTE" ]; then
+            echo "Ошибка: MD5 суммы не совпадают!"
+            echo "Local: $MD5_LOCAL, Remote: $MD5_REMOTE"
+            exit 1
+          fi
+          echo "MD5 проверка пройдена: $MD5_LOCAL"
+
+      - name: Send Telegram Alert on Failure
+        if: failure()
+        run: |
+          curl -s -X POST https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage \
+          -d chat_id=${{ secrets.TELEGRAM_CHAT_ID }} \
+          -d text="Ошибка в CI пайплайне (Nginx test)! Индексный файл не прошел проверку."
+
+      - name: Cleanup (Delete container)
+        if: always()
+        run: |
+          docker rm -f test-nginx
