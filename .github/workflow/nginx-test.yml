@@ -31,9 +31,7 @@ jobs:
 
       - name: Check MD5 sum
         run: |
-          # Считаем сумму локального файла
           MD5_LOCAL=$(md5sum index.html | awk '{print $1}')
-          # Считаем сумму файла, который отдает Nginx
           MD5_REMOTE=$(curl -s http://localhost:9889/index.html | md5sum | awk '{print $1}')
 
           if [ "$MD5_LOCAL" != "$MD5_REMOTE" ]; then
